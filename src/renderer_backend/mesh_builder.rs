@@ -4,6 +4,11 @@ extern crate bytemuck;
 
 use wgpu::util::DeviceExt;
 
+pub struct Mesh {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -37,4 +42,34 @@ pub fn make_triangle(device: &wgpu::Device) -> wgpu::Buffer {
     };
 
     device.create_buffer_init(&buffer_descriptor)
+}
+
+pub fn make_quad(device: &wgpu::Device) -> Mesh {
+    let vertices = [
+        Vertex { position: glam::Vec3::new(-0.75, -0.75, 0.0) , color: glam::Vec3::new(1.0, 0.0, 0.0) },
+        Vertex { position: glam::Vec3::new( 0.75, -0.75, 0.0) , color: glam::Vec3::new(0.0, 1.0, 0.0) },
+        Vertex { position: glam::Vec3::new( 0.75,  0.75, 0.0) , color: glam::Vec3::new(0.0, 0.0, 1.0) },
+        Vertex { position: glam::Vec3::new(-0.75,  0.75, 0.0) , color: glam::Vec3::new(0.0, 1.0, 1.0) },
+        ];
+
+    let mut buffer_descriptor = wgpu::util::BufferInitDescriptor {
+        label: Some("Quad Vertex Buffer"),
+        contents: bytemuck::cast_slice(&vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    };
+    let vertex_buffer = device.create_buffer_init(&buffer_descriptor);
+
+    let indices: [u16; _] = [0, 1, 2, 2, 3, 0];
+
+    buffer_descriptor = wgpu::util::BufferInitDescriptor {
+        label: Some("Quad Index Buffer"),
+        contents: bytemuck::cast_slice(&indices),
+        usage: wgpu::BufferUsages::INDEX,
+    };
+    let index_buffer = device.create_buffer_init(&buffer_descriptor);
+
+    Mesh {
+        vertex_buffer,
+        index_buffer,
+    }
 }
