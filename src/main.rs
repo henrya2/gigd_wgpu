@@ -149,6 +149,7 @@ async fn run() {
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
 
     glfw.window_hint(glfw::WindowHint::ClientApi(ClientApiHint::NoApi));
+    glfw.window_hint(glfw::WindowHint::Resizable(true));
 
     let (mut window, events) = glfw.create_window(800, 600, "It's WGPU time", glfw::WindowMode::Windowed).unwrap();
 
@@ -161,25 +162,8 @@ async fn run() {
 
     while !state.window.should_close() {
         glfw.poll_events();
-        for (_, event) in glfw::flush_messages(&events) {
-            match event {
-                glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
-                    state.window.set_should_close(true);
-                }
-
-                glfw::WindowEvent::Pos(..) => {
-                    state.update_surface();
-                    let new_size = state.window.get_framebuffer_size();
-                    state.resize(new_size);
-                }
-
-                glfw::WindowEvent::FramebufferSize(_width, _height) => {
-                    state.update_surface();
-                    let new_size = state.window.get_framebuffer_size();
-                    state.resize(new_size);
-                }
-                _ => {}
-            }
+        for event in glfw::flush_messages(&events) {
+            handle_winow_event(&mut state, event);
         }
         match state.render() {
             Ok(_) => {}
@@ -191,6 +175,27 @@ async fn run() {
                 eprintln!("Error: {:?}", e);
             }
         }
+    }
+}
+
+fn handle_winow_event(state: &mut State, (_time, event): (f64, glfw::WindowEvent)) {
+    match event {
+        glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
+            state.window.set_should_close(true);
+        }
+
+        glfw::WindowEvent::Pos(..) => {
+            state.update_surface();
+            let new_size = state.window.get_framebuffer_size();
+            state.resize(new_size);
+        }
+
+        glfw::WindowEvent::FramebufferSize(_width, _height) => {
+            state.update_surface();
+            let new_size = state.window.get_framebuffer_size();
+            state.resize(new_size);
+        }
+        _ => {}
     }
 }
 
