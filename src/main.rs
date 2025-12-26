@@ -1,7 +1,8 @@
-use glfw::{Action, Key, Window, fail_on_errors, ClientApiHint};
+use glfw::{Action, Key, fail_on_errors, ClientApiHint};
 
 mod renderer_backend;
-use renderer_backend::pipeline_builder::PipelineBuilder;
+
+use renderer_backend::{pipeline_builder::PipelineBuilder, mesh_builder};
 
 struct State<'a> {
     instance: wgpu::Instance,
@@ -10,12 +11,13 @@ struct State<'a> {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: (i32, i32),
-    window: &'a mut Window,
+    window: &'a mut glfw::Window,
     render_pipeline: wgpu::RenderPipeline,
+    triangle_mesh: wgpu::Buffer,
 }
 
 impl<'a> State<'a> {
-    async fn new(window: &'a mut Window) -> Self {
+    async fn new(window: &'a mut glfw::Window) -> Self {
 
         let size = window.get_framebuffer_size();
 
@@ -64,12 +66,16 @@ impl<'a> State<'a> {
             desired_maximum_frame_latency: 2
         };
         surface.configure(&device, &config);
+        
+        let triangle_buffer = mesh_builder::make_triangle(&device);
 
         let mut pipeline_builder = PipelineBuilder::new();
         pipeline_builder
             .set_shader_module("shaders/shader.wgsl", "vs_main", "fs_main")
-            .set_pixel_format(surface_format);
+            .set_pixel_format(surface_format)
+            .add_vertex_buffer_layout(mesh_builder::Vertex::get_layout());
         let render_pipeline = pipeline_builder.build_pipeline(&device);
+        pipeline_builder.reset();
 
         Self {
             instance,
@@ -80,6 +86,7 @@ impl<'a> State<'a> {
             config,
             size,
             render_pipeline,
+            triangle_mesh: triangle_buffer,
         }
     }
 
@@ -120,6 +127,7 @@ impl<'a> State<'a> {
         {
             let mut renderpass = command_encoder.begin_render_pass(&render_pass_descriptor);
             renderpass.set_pipeline(&self.render_pipeline);
+            renderpass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
             renderpass.draw(0..3, 0..1);
         }
 
@@ -163,7 +171,7 @@ async fn run() {
     while !state.window.should_close() {
         glfw.poll_events();
         for event in glfw::flush_messages(&events) {
-            handle_winow_event(&mut state, event);
+            handle_window_event(&mut state, event);
         }
         match state.render() {
             Ok(_) => {}
@@ -178,7 +186,7 @@ async fn run() {
     }
 }
 
-fn handle_winow_event(state: &mut State, (_time, event): (f64, glfw::WindowEvent)) {
+fn handle_window_event(state: &mut State, (_time, event): (f64, glfw::WindowEvent)) {
     match event {
         glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
             state.window.set_should_close(true);

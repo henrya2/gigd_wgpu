@@ -1,31 +1,46 @@
 use std::env::current_dir;
 use std::fs;
-pub struct PipelineBuilder {
+
+pub struct PipelineBuilder<'a> {
     shader_filename: String,
     vertex_entry: String,
     fragment_entry: String,
     pixel_format: wgpu::TextureFormat,
+    vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'a>>,
 }
 
-impl PipelineBuilder {
+impl<'a> PipelineBuilder<'a> {
     pub fn new() -> Self {
         Self {
             shader_filename: "dummy".to_string(),
             vertex_entry: "dummy".to_string(),
             fragment_entry: "dummy".to_string(),
             pixel_format: wgpu::TextureFormat::Rgba8Unorm,
+            vertex_buffer_layouts: Vec::new(),
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.vertex_buffer_layouts.clear();
+    }
+
+    pub fn add_vertex_buffer_layout(&mut self, layout: wgpu::VertexBufferLayout<'a>) -> &mut Self {
+        self.vertex_buffer_layouts.push(layout);
+
+        self
     }
 
     pub fn set_shader_module(&mut self, shader_filename: &str, vertex_entry: &str, fragment_entry: &str) -> &mut Self {
         self.shader_filename = shader_filename.to_string();
         self.vertex_entry = vertex_entry.to_string();
         self.fragment_entry = fragment_entry.to_string();
+
         self
     }
 
     pub fn set_pixel_format(&mut self, pixel_format: wgpu::TextureFormat) -> &mut Self {
         self.pixel_format = pixel_format;
+
         self
     }
 
@@ -63,7 +78,7 @@ impl PipelineBuilder {
                 module: &shader_module,
                 entry_point: Some(&self.vertex_entry),
                 compilation_options: Default::default(),
-                buffers: &[],
+                buffers: &self.vertex_buffer_layouts,
             },
 
             primitive: wgpu::PrimitiveState {
@@ -92,7 +107,7 @@ impl PipelineBuilder {
             multiview_mask: None,
             cache: None,
         };
-        
+
         device.create_render_pipeline(&render_pipeline_descriptor)
     }
 }
