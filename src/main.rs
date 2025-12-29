@@ -39,6 +39,12 @@ impl<'a> State<'a> {
         let adapter = instance.request_adapter(&adapter_descriptor)
             .await.unwrap();
 
+        if cfg!(debug_assertions)
+        {
+            let backend = adapter.get_info().backend;
+            println!("Using backend: {:?}", backend);
+        }
+
         let device_descriptor = wgpu::DeviceDescriptor {
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
@@ -146,8 +152,8 @@ impl<'a> State<'a> {
             renderpass.set_pipeline(&self.render_pipeline);
 
             renderpass.set_bind_group(0, &self.quad_material.bind_group, &[]);
-            renderpass.set_vertex_buffer(0, self.quad_mesh.vertex_buffer.slice(..));
-            renderpass.set_index_buffer(self.quad_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            renderpass.set_vertex_buffer(0, self.quad_mesh.buffer.slice(..self.quad_mesh.offset));
+            renderpass.set_index_buffer(self.quad_mesh.buffer.slice(self.quad_mesh.offset..), wgpu::IndexFormat::Uint16);
             renderpass.draw_indexed(0..6, 0, 0..1);
 
             renderpass.set_bind_group(0, &self.triangle_material.bind_group, &[]);

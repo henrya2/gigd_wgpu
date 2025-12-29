@@ -5,8 +5,8 @@ extern crate bytemuck;
 use wgpu::util::DeviceExt;
 
 pub struct Mesh {
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
+    pub buffer: wgpu::Buffer,
+    pub offset: u64,
 }
 
 #[repr(C)]
@@ -51,25 +51,22 @@ pub fn make_quad(device: &wgpu::Device) -> Mesh {
         Vertex { position: glam::Vec3::new( 0.75,  0.75, 0.0) , color: glam::Vec3::new(0.0, 0.0, 1.0) },
         Vertex { position: glam::Vec3::new(-0.75,  0.75, 0.0) , color: glam::Vec3::new(0.0, 1.0, 1.0) },
         ];
-
-    let mut buffer_descriptor = wgpu::util::BufferInitDescriptor {
-        label: Some("Quad Vertex Buffer"),
-        contents: bytemuck::cast_slice(&vertices),
-        usage: wgpu::BufferUsages::VERTEX,
-    };
-    let vertex_buffer = device.create_buffer_init(&buffer_descriptor);
-
     let indices: [u16; _] = [0, 1, 2, 2, 3, 0];
+    
+    let bytes_1 = bytemuck::cast_slice(&vertices);
+    let bytes_2 = bytemuck::cast_slice(&indices);
+    let bytes_merged = &[bytes_1, bytes_2].concat();
 
-    buffer_descriptor = wgpu::util::BufferInitDescriptor {
-        label: Some("Quad Index Buffer"),
-        contents: bytemuck::cast_slice(&indices),
-        usage: wgpu::BufferUsages::INDEX,
+    let buffer_descriptor = wgpu::util::BufferInitDescriptor {
+        label: Some("Quad vertex & index Buffer"),
+        contents: bytes_merged,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::INDEX,
     };
-    let index_buffer = device.create_buffer_init(&buffer_descriptor);
+    let buffer = device.create_buffer_init(&buffer_descriptor);
+    let offset = bytes_1.len().try_into().unwrap();
 
     Mesh {
-        vertex_buffer,
-        index_buffer,
+        buffer,
+        offset,
     }
 }
