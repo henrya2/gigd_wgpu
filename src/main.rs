@@ -2,7 +2,7 @@ use glfw::{Action, Key, fail_on_errors, ClientApiHint};
 
 mod renderer_backend;
 
-use renderer_backend::{pipeline_builder::PipelineBuilder, mesh_builder};
+use renderer_backend::{pipeline, bind_group_layout, material::Material, mesh_builder};
 
 struct State<'a> {
     instance: wgpu::Instance,
@@ -15,6 +15,8 @@ struct State<'a> {
     render_pipeline: wgpu::RenderPipeline,
     triangle_mesh: wgpu::Buffer,
     quad_mesh: mesh_builder::Mesh,
+    triangle_material: Material,
+    quad_material: Material,
 }
 
 impl<'a> State<'a> {
@@ -69,16 +71,25 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
         
         let triangle_buffer = mesh_builder::make_triangle(&device);
-        
+
         let quad_mesh = mesh_builder::make_quad(&device);
 
-        let mut pipeline_builder = PipelineBuilder::new();
-        pipeline_builder
-            .set_shader_module("shaders/shader.wgsl", "vs_main", "fs_main")
-            .set_pixel_format(surface_format)
-            .add_vertex_buffer_layout(mesh_builder::Vertex::get_layout());
-        let render_pipeline = pipeline_builder.build_pipeline(&device);
-        pipeline_builder.reset();
+        let material_bind_group_layout = {
+            let mut builder = bind_group_layout::Builder::new(&device);
+            builder.add_material();
+            builder.build("Material Bind Group Layout")
+        };
+
+        let render_pipeline = {
+            let mut builder = pipeline::Builder::new(&device);
+            builder.set_shader_module("shaders/shader.wgsl", "vs_main", "fs_main");
+            builder.set_pixel_format(config.format);
+            builder.add_vertex_buffer_layout(mesh_builder::Vertex::get_layout());
+            builder.add_bind_group_layout(&material_bind_group_layout);
+            builder.build("Render Pipeline")
+        };
+        let triangle_materail = Material::new("../img/winry.jpg", &device, &queue, "Triangle Material", &material_bind_group_layout);
+        let quad_materail = Material::new("../img/satin.jpg", &device, &queue, "Quad Material", &material_bind_group_layout);
 
         Self {
             instance,
@@ -91,6 +102,8 @@ impl<'a> State<'a> {
             render_pipeline,
             triangle_mesh: triangle_buffer,
             quad_mesh,
+            triangle_material: triangle_materail,
+            quad_material: quad_materail,
         }
     }
 
@@ -131,11 +144,13 @@ impl<'a> State<'a> {
         {
             let mut renderpass = command_encoder.begin_render_pass(&render_pass_descriptor);
             renderpass.set_pipeline(&self.render_pipeline);
-            
+
+            renderpass.set_bind_group(0, &self.quad_material.bind_group, &[]);
             renderpass.set_vertex_buffer(0, self.quad_mesh.vertex_buffer.slice(..));
             renderpass.set_index_buffer(self.quad_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             renderpass.draw_indexed(0..6, 0, 0..1);
-            
+
+            renderpass.set_bind_group(0, &self.triangle_material.bind_group, &[]);
             renderpass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
             renderpass.draw(0..3, 0..1);
         }
