@@ -1,8 +1,50 @@
 use glfw::{Action, Key, fail_on_errors, ClientApiHint};
 
 mod renderer_backend;
+mod model;
 
-use renderer_backend::{pipeline, bind_group_layout, material::Material, mesh_builder};
+use renderer_backend::{pipeline, bind_group_layout, material::Material, mesh_builder, ubo::UBO};
+
+use model::game_objects::Object;
+
+struct World {
+    quads: Vec<Object>,
+    tris: Vec<Object>,
+}
+
+impl World {
+    const ROTATION_SPEED: f32 = 24.0;
+    fn new() -> Self {
+        World { quads: Vec::new(), tris: Vec::new() }
+    }
+
+    fn update(&mut self, dt: f32) {
+
+        let update_obj = |obj: &mut Object| {
+            obj.angle = obj.angle + Self::ROTATION_SPEED * dt;
+            if obj.angle > 360.0 {
+                obj.angle -= 360.0;
+            }
+
+            if !obj.velocity.cmpeq(glam::Vec3::ZERO).all() {
+                obj.position = obj.position + obj.velocity * dt;
+
+                if obj.position.cmpge(glam::Vec3::ONE).any() ||
+                    obj.position.cmple(glam::Vec3::NEG_ONE).any() {
+                    obj.velocity = -obj.velocity;
+                }
+            }
+        };
+
+        for tri in &mut self.tris {
+            update_obj(tri);
+        }
+
+        for quad in &mut self.quads {
+            update_obj(quad);
+        }
+    }
+}
 
 struct State<'a> {
     instance: wgpu::Instance,
@@ -17,6 +59,7 @@ struct State<'a> {
     quad_mesh: mesh_builder::Mesh,
     triangle_material: Material,
     quad_material: Material,
+    ubo: Option<UBO>,
 }
 
 impl<'a> State<'a> {
@@ -39,7 +82,7 @@ impl<'a> State<'a> {
         let adapter = instance.request_adapter(&adapter_descriptor)
             .await.unwrap();
 
-        if cfg!(debug_assertions)
+        #[cfg(debug_assertions)]
         {
             let backend = adapter.get_info().backend;
             println!("Using backend: {:?}", backend);
@@ -86,12 +129,19 @@ impl<'a> State<'a> {
             builder.build("Material Bind Group Layout")
         };
 
+        let ubo_bind_group_layout = {
+            let mut builder = bind_group_layout::Builder::new(&device);
+            builder.add_ubo();
+            builder.build("UBO Bind Group Layout")
+        };
+
         let render_pipeline = {
             let mut builder = pipeline::Builder::new(&device);
-            builder.set_shader_module("shaders/shader.wgsl", "vs_main", "fs_main");
-            builder.set_pixel_format(config.format);
-            builder.add_vertex_buffer_layout(mesh_builder::Vertex::get_layout());
-            builder.add_bind_group_layout(&material_bind_group_layout);
+            builder.set_shader_module("shaders/shader.wgsl", "vs_main", "fs_main")
+            .set_pixel_format(config.format)
+            .add_vertex_buffer_layout(mesh_builder::Vertex::get_layout())
+            .add_bind_group_layout(&material_bind_group_layout)
+            .add_bind_group_layout(&ubo_bind_group_layout);
             builder.build("Render Pipeline")
         };
         let triangle_materail = Material::new("../img/winry.jpg", &device, &queue, "Triangle Material", &material_bind_group_layout);
@@ -110,10 +160,31 @@ impl<'a> State<'a> {
             quad_mesh,
             triangle_material: triangle_materail,
             quad_material: quad_materail,
+            ubo: None,
         }
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    fn render(&mut self, quads: &Vec<Object>, tris: &Vec<Object>) -> Result<(), wgpu::SurfaceError> {
+
+        //self.device.poll(wgpu::Maintain::Wait);
+
+        // Upload
+        let mut offset: u64 = 0;
+        for (i, value) in quads.iter().enumerate() {
+            // Be careful here, glam uses column major matrix， ABv, B applies first, then A. So rotation first , then translation.
+            let matrix = glam::Mat4::from_translation(value.position) *
+                glam::Mat4::from_axis_angle(glam::Vec3::new(0.0, 0.0, 1.0), value.angle.to_radians());
+            self.ubo.as_mut().unwrap().upload(offset + i as u64, &matrix, &self.queue);
+        }
+
+        offset = quads.len() as u64;
+        for (i, value) in tris.iter().enumerate() {
+            // Be careful here, glam uses column major matrix， ABv, B applies first, then A. So rotation first , then translation.
+            let matrix = glam::Mat4::from_translation(value.position) *
+                glam::Mat4::from_axis_angle(glam::Vec3::new(0.0, 0.0, 1.0), value.angle.to_radians());
+            self.ubo.as_mut().unwrap().upload(offset + i as u64, &matrix, &self.queue);
+        }
+
         let drawable = self.surface.get_current_texture()?;
         let image_view_descriptor = wgpu::TextureViewDescriptor::default();
         let image_view = drawable.texture.create_view(&image_view_descriptor);
@@ -154,11 +225,30 @@ impl<'a> State<'a> {
             renderpass.set_bind_group(0, &self.quad_material.bind_group, &[]);
             renderpass.set_vertex_buffer(0, self.quad_mesh.buffer.slice(..self.quad_mesh.offset));
             renderpass.set_index_buffer(self.quad_mesh.buffer.slice(self.quad_mesh.offset..), wgpu::IndexFormat::Uint16);
-            renderpass.draw_indexed(0..6, 0, 0..1);
 
-            renderpass.set_bind_group(0, &self.triangle_material.bind_group, &[]);
-            renderpass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
-            renderpass.draw(0..3, 0..1);
+            let mut offset:usize = 0;
+            for i in 0..quads.len() {
+                renderpass.set_bind_group(
+                    1,
+                    &(self.ubo.as_ref().unwrap()).bind_groups[offset + i],
+                    &[]
+                );
+                renderpass.draw_indexed(0..6, 0, 0..1);
+            }
+
+            {
+                renderpass.set_bind_group(0, &self.triangle_material.bind_group, &[]);
+                renderpass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
+                offset = quads.len();
+                for i in 0..tris.len() {
+                    renderpass.set_bind_group(
+                        1,
+                        &(self.ubo.as_ref().unwrap()).bind_groups[offset + i],
+                        &[]
+                    );
+                    renderpass.draw(0..3, 0..1);
+                }
+            }
         }
 
         self.queue.submit(std::iter::once(command_encoder.finish()));
@@ -181,6 +271,15 @@ impl<'a> State<'a> {
     fn update_surface(&mut self) {
         self.surface = self.instance.create_surface(self.window.render_context()).unwrap();
     }
+
+    pub fn build_ubos_for_objects(&mut self, object_count: usize) {
+        let ubo_bind_group_layout = {
+            let mut builder = bind_group_layout::Builder::new(&self.device);
+            builder.add_ubo();
+            builder.build("UBO Bind Group Layout")
+        };
+        self.ubo = Some(UBO::new(&self.device, object_count, ubo_bind_group_layout));
+    }
 }
 
 async fn run() {
@@ -198,12 +297,36 @@ async fn run() {
     state.window.set_mouse_button_polling(true);
     state.window.set_pos_polling(true);
 
+
+    // Build world
+    let mut world = World::new();
+    world.tris.push(Object {
+        position: glam::Vec3::new(-0.5, 0.0, 0.0),
+        angle: 0.0,
+        velocity: glam::vec3(0.1, 0.06, 0.0)
+    });
+    world.quads.push(Object {
+        position: glam::Vec3::new(0.9, 0.0, 0.0),
+        angle: 0.0,
+        velocity: glam::vec3(0.0, 0.0, 0.0),
+    });
+    state.build_ubos_for_objects(world.tris.len() + world.quads.len());
+
+    let mut delta_time;
+    let mut last_time = glfw.get_time();
+
     while !state.window.should_close() {
+        let current_time = glfw.get_time();
+        delta_time = current_time - last_time;
+        last_time = current_time;
+
+        world.update(delta_time as f32);
+
         glfw.poll_events();
         for event in glfw::flush_messages(&events) {
             handle_window_event(&mut state, event);
         }
-        match state.render() {
+        match state.render(&world.quads, &world.tris) {
             Ok(_) => {}
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 state.update_surface();

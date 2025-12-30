@@ -19,7 +19,7 @@ impl<'a> Builder<'a> {
         self.entries.clear();
     }
 
-    pub fn add_material(&mut self) {
+    pub fn add_material(&mut self) ->&mut Self {
 
         self.entries.push(wgpu::BindGroupLayoutEntry {
             binding: self.entries.len() as u32,
@@ -38,6 +38,23 @@ impl<'a> Builder<'a> {
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         });
+        
+        self
+    }
+    
+    pub fn add_ubo(&mut self) ->&mut Self {
+        self.entries.push(wgpu::BindGroupLayoutEntry {
+            binding: self.entries.len() as u32,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        });
+        
+        self
     }
 
     pub fn build(&mut self, label: &str) -> wgpu::BindGroupLayout {
